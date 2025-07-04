@@ -2,15 +2,25 @@ package main
 
 import (
     "log"
+    "net"
+
+    "google.golang.org/grpc"
+    pb "todoapp-backend/src/pb"
     "todoapp-backend/src"
 )
 
 func main() {
-    src.InitDB()
+    lis, err := net.Listen("tcp", ":50051")
+    if err != nil {
+        log.Fatalf("Failed to listen: %v", err)
+    }
 
-    router := src.SetupRoutes()
+    grpcServer := grpc.NewServer()
 
-    if err := router.Run(":8080"); err != nil {
-        log.Fatal("Failed to start server:", err)
+    pb.RegisterTodoServiceServer(grpcServer, &src.TodoServiceServer{})
+
+    log.Println("🚀 gRPC server listening on port 50051...")
+    if err := grpcServer.Serve(lis); err != nil {
+        log.Fatalf("Failed to serve: %v", err)
     }
 }

@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package todo;
+
+option go_package = "todoapp-backend/pb";
+
+message Todo {
+  string id = 1;
+  string title = 2;
+  bool completed = 3;
+}
+
+message TodoId {
+  string id = 1;
+}
+
+message TodoTitle {
+  string title = 1;
+}
+
+message TodoStatus {
+  string id = 1;
+  bool completed = 2;
+}
+
+message RenameRequest {
+  string id = 1;
+  string title = 2;
+}
+
+message Empty {}
+
+message TodoList {
+  repeated Todo todos = 1;
+}
+
+service TodoService {
+  rpc CreateTodo (TodoTitle) returns (Todo);
+  rpc GetAllTodos (Empty) returns (TodoList);
+  rpc GetTodo (TodoId) returns (Todo);
+  rpc DeleteTodo (TodoId) returns (Empty);
+  rpc RenameTodo (RenameRequest) returns (Empty);
+  rpc UpdateTodoStatus (TodoStatus) returns (Empty);
+}

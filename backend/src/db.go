@@ -1,100 +1,95 @@
 package src
 
 import (
-	"encoding/json"
-	"github.com/dgraph-io/badger/v4"
-	"log"
+    "context"
+    "errors"
+    "sync"
+
+    "github.com/google/uuid"
+    pb "todoapp-backend/src/pb"
 )
 
-var db *badger.DB
-
-func InitDB() {
-	opts := badger.DefaultOptions("./data").WithLogger(nil)
-	var err error
-	db, err = badger.Open(opts)
-	if err != nil {
-		log.Fatal(err)
-	}
+type todoStore struct {
+    sync.RWMutex
+    todos map[string]*pb.Todo
 }
 
-func SaveTodo(todo Todo) error {
-	return db.Update(func(txn *badger.Txn) error {
-		data, err := json.Marshal(todo)
-		if err != nil {
-			return err
-		}
-		return txn.Set([]byte(todo.ID), data)
-	})
+var store = todoStore{
+    todos: make(map[string]*pb.Todo),
 }
 
-func GetTodo(id string) (Todo, error){
-	var todo Todo
-	err := db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(id))
-		if err != nil {
-			return err
-		}
-		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &todo)
-		})
-	})
-	return todo, err
+type TodoServiceServer struct {
+    pb.UnimplementedTodoServiceServer
 }
 
-func GetAllTodos() ([]Todo, error) {
-	var todos []Todo
+func (s *TodoServiceServer) CreateTodo(ctx context.Context, req *pb.CreateTodoRequest) (*pb.CreateTodoResponse, error) {
+    id := uuid.New().String()
+    todo := &pb.Todo{
+        Id:        id,
+        Title:     req.Title,
+        Completed: false,
+    }
 
-	err := db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = true
-		it := txn.NewIterator(opts)
-		defer it.Close()
+    store.Lock()
+    store.todos[id] = todo
+    store.Unlock()
 
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-			err := item.Value(func(val []byte) error {
-				var todo Todo
-				if err := json.Unmarshal(val, &todo); err != nil {
-					return err
-				}
-				todos = append(todos, todo)
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-
-	return todos, err
+    return &pb.CreateTodoResponse{Todo: todo}, nil
 }
 
+func (s *TodoServiceServer) GetAllTodos(ctx context.Context, _ *pb.Empty) (*pb.GetAllTodosResponse, error) {
+    store.RLock()
+    defer store.RUnlock()
 
-func UpdateTodoStatus(id string, completed bool) error {
-	todo, err := GetTodo(id)
-	if err != nil {
-		return err 
-	}
-
-	todo.Completed = completed
-
-	return SaveTodo(todo)
+    var todos []*pb.Todo
+    for _, todo := range store.todos {
+        todos = append(todos, todo)
+    }
+    return &pb.GetAllTodosResponse{Todos: todos}, nil
 }
 
-func RenameTodo(id string, newTitle string) error {
-	todo, err := GetTodo(id)
-	if err != nil {
-		return err
-	}
+func (s *TodoServiceServer) GetTodo(ctx context.Context, req *pb.GetTodoRequest) (*pb.GetTodoResponse, error) {
+    store.RLock()
+    defer store.RUnlock()
 
-	todo.Title = newTitle
-	return SaveTodo(todo)
+    todo, ok := store.todos[req.Id]
+    if !ok {
+        return nil, errors.New("todo not found")
+    }
+    return &pb.GetTodoResponse{Todo: todo}, nil
 }
 
-func DeleteTodo(id string) error {
-	return db.Update(func(txn *badger.Txn) error {
-		return txn.Delete([]byte(id))
-	})
+func (s *TodoServiceServer) RenameTodo(ctx context.Context, req *pb.RenameTodoRequest) (*pb.Empty, error) {
+    store.Lock()
+    defer store.Unlock()
+
+    todo, ok := store.todos[req.Id]
+    if !ok {
+        return nil, errors.New("todo not found")
+    }
+    todo.Title = req.Title
+    return &pb.Empty{}, nil
+}
+
+func (s *TodoServiceServer) UpdateTodoStatus(ctx context.Context, req *pb.UpdateTodoStatusRequest) (*pb.Empty, error) {
+    store.Lock()
+    defer store.Unlock()
+
+    todo, ok := store.todos[req.Id]
+    if !ok {
+        return nil, errors.New("todo not found")
+    }
+    todo.Completed = req.Completed
+    return &pb.Empty{}, nil
+}
+
+func (s *TodoServiceServer) DeleteTodo(ctx context.Context, req *pb.DeleteTodoRequest) (*pb.Empty, error) {
+    store.Lock()
+    defer store.Unlock()
+
+    if _, ok := store.todos[req.Id]; !ok {
+        return nil, errors.New("todo not found")
+    }
+    delete(store.todos, req.Id)
+    return &pb.Empty{}, nil
 }
