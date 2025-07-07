@@ -10,7 +10,6 @@ import (
 func SetupRoutes() *gin.Engine {
 	r := gin.Default()
 
-	r.GET("/todos", getAllTodosHandler)
 	r.GET("/todos/:id", getTodoHandler)
 	r.POST("/todos", createTodoHandler)
 	r.PUT("/todos/:id/name", renameTodoHandler)
