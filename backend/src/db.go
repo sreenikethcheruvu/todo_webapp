@@ -2,18 +2,22 @@ package src
 
 import (
 	"encoding/json"
+	"errors"
+
 	"github.com/dgraph-io/badger/v4"
-	"log"
 )
 
-var db *badger.DB
+var (
+	db              *badger.DB
+	ErrTodoNotFound = errors.New("todo not found")
+)
 
 func InitDB() {
 	opts := badger.DefaultOptions("./data").WithLogger(nil)
 	var err error
 	db, err = badger.Open(opts)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 }
 
@@ -27,11 +31,14 @@ func SaveTodo(todo Todo) error {
 	})
 }
 
-func GetTodo(id string) (Todo, error){
+func GetTodo(id string) (Todo, error) {
 	var todo Todo
 	err := db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(id))
 		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				return ErrTodoNotFound
+			}
 			return err
 		}
 		return item.Value(func(val []byte) error {
@@ -71,15 +78,12 @@ func GetAllTodos() ([]Todo, error) {
 	return todos, err
 }
 
-
 func UpdateTodoStatus(id string, completed bool) error {
 	todo, err := GetTodo(id)
 	if err != nil {
-		return err 
+		return err
 	}
-
 	todo.Completed = completed
-
 	return SaveTodo(todo)
 }
 
@@ -88,13 +92,16 @@ func RenameTodo(id string, newTitle string) error {
 	if err != nil {
 		return err
 	}
-
 	todo.Title = newTitle
 	return SaveTodo(todo)
 }
 
 func DeleteTodo(id string) error {
 	return db.Update(func(txn *badger.Txn) error {
-		return txn.Delete([]byte(id))
+		err := txn.Delete([]byte(id))
+		if err == badger.ErrKeyNotFound {
+			return ErrTodoNotFound
+		}
+		return err
 	})
 }
